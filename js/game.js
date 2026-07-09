@@ -109,6 +109,17 @@ const gameOverUI = {
     height: 245,
     x: (canvas.width / 2 - 345 / 2),
     y: 250,
+    startButton: {
+        x: (canvas.width / 2 - 345 / 2) + 95,
+        y: 250 + 172,
+        width: 150,
+        height: 50
+    },
+    isClickOnStartButton(position) {
+        const button = gameOverUI.startButton;
+        return position.x >= button.x && position.x <= button.x + button.width
+            && position.y >= button.y && position.y <= button.y + button.height;
+    },
     draw() {
         context.drawImage(
             sprites,
@@ -213,11 +224,12 @@ function createButterflyMorty() {
         height: 64,
         x: 10,
         y: 50,
-        jumpSpeed: 4.6,
+        jumpSpeed: 4.2,
         jump() {
             butterflyMorty.speed = - butterflyMorty.jumpSpeed;
         },
-        gravity: 0.25,
+        gravity: 0.18,
+        maxFallSpeed: 6, //Velocidade máxima de queda, para não despencar como pedra
         speed: 0,
         refresh() {
             if (hasCollision(butterflyMorty, globals.floor)) {
@@ -225,7 +237,10 @@ function createButterflyMorty() {
                 changeScreen(screens.GAME_OVER);
                 return;
             }
-            butterflyMorty.speed = butterflyMorty.speed + butterflyMorty.gravity;
+            butterflyMorty.speed = Math.min(
+                butterflyMorty.speed + butterflyMorty.gravity,
+                butterflyMorty.maxFallSpeed
+            );
             butterflyMorty.y = butterflyMorty.y + butterflyMorty.speed;
         },
         moviments: [
@@ -275,7 +290,7 @@ function createSpikes() {
         draw() {
             spikes.pairs.forEach(function(pair) {
                 const randomY = pair.y;
-                const spaceBetweenSpikes = 200;
+                const spaceBetweenSpikes = 220;
                 const spikeSkyX = pair.x;
                 const spikeSkyY = randomY;
                 context.drawImage(
@@ -305,9 +320,16 @@ function createSpikes() {
             });
         },
         hasCollisionWithButterflyMorty(pair) {
-            const butterflyMortyHead = globals.butterflyMorty.y;
-            const butterflyMortyFeet = globals.butterflyMorty.y + globals.butterflyMorty.height;
-            if((globals.butterflyMorty.x + globals.butterflyMorty.width) >= pair.x) {
+            //Margem de tolerância: o sprite tem asas e bordas transparentes, então o hitbox é menor que os 64x64 da imagem
+            const hitboxMargin = 12;
+            const butterflyMortyLeft = globals.butterflyMorty.x + hitboxMargin;
+            const butterflyMortyRight = globals.butterflyMorty.x + globals.butterflyMorty.width - hitboxMargin;
+            const butterflyMortyHead = globals.butterflyMorty.y + hitboxMargin;
+            const butterflyMortyFeet = globals.butterflyMorty.y + globals.butterflyMorty.height - hitboxMargin;
+
+            const insideSpikeX = butterflyMortyRight >= pair.x
+                && butterflyMortyLeft <= (pair.x + spikes.width);
+            if(insideSpikeX) {
                 if(butterflyMortyHead <= pair.spikeSky.y) {
                     return true;
                 }
@@ -318,6 +340,12 @@ function createSpikes() {
             return false;
         },
         pairs: [],
+        //Velocidade aumenta aos poucos com o score, para o jogo começar tranquilo e ir ficando desafiador
+        speed() {
+            const scoring = globals.score ? globals.score.scoring : 0;
+            const extraSpeed = Math.min(Math.floor(scoring / 10) * 0.25, 1.5);
+            return 2 + extraSpeed;
+        },
         refresh() {
             const passed100Frames = frames % 100 === 0;
             if(passed100Frames) {
@@ -327,7 +355,7 @@ function createSpikes() {
                 });
             }
             spikes.pairs.forEach(function(pair) {
-                pair.x = pair.x - 2;
+                pair.x = pair.x - spikes.speed();
                 if(spikes.hasCollisionWithButterflyMorty(pair)) {
                     soundHit.play();
                     changeScreen(screens.GAME_OVER);
@@ -456,8 +484,10 @@ screens.GAME_OVER = {
     },
     refresh() {
     },
-    click() {
-        changeScreen(screens.INIT);
+    click(event) {
+        if (gameOverUI.isClickOnStartButton(getClickPositionOnCanvas(event))) {
+            changeScreen(screens.INIT);
+        }
     }
 }
 
@@ -468,10 +498,25 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
-window.addEventListener('click', function(){
+//Converte a posição do clique na tela para as coordenadas internas do canvas (que é redimensionado via CSS)
+function getClickPositionOnCanvas(event) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: (event.clientX - rect.left) * (canvas.width / rect.width),
+        y: (event.clientY - rect.top) * (canvas.height / rect.height)
+    };
+}
+
+window.addEventListener('click', function(event){
     if (activeScreen.click) {
-        activeScreen.click();
+        activeScreen.click(event);
     }
+});
+
+window.addEventListener('mousemove', function(event){
+    const isOverStartButton = activeScreen === screens.GAME_OVER
+        && gameOverUI.isClickOnStartButton(getClickPositionOnCanvas(event));
+    canvas.style.cursor = isOverStartButton ? 'pointer' : 'default';
 });
 
 changeScreen(screens.INIT);
